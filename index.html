@@ -1,0 +1,2187 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PhysAI Lab - Interactive Physics Intelligence</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&family=Orbitron:wght@400;500;600;700;800;900&display=swap"
+    rel="stylesheet">
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: #0a0a1e;
+      overflow-x: hidden;
+    }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 10px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: rgba(10, 10, 30, 0.5);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, #06b6d4, #3b82f6);
+      border-radius: 5px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: linear-gradient(180deg, #0891b2, #2563eb);
+    }
+
+    /* Smooth animations */
+    * {
+      transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* Glow effects */
+    .glow-cyan {
+      box-shadow: 0 0 20px rgba(6, 182, 212, 0.3);
+    }
+
+    .glow-blue {
+      box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+    }
+
+    /* Animation keyframes */
+    @keyframes float {
+
+      0%,
+      100% {
+        transform: translateY(0px);
+      }
+
+      50% {
+        transform: translateY(-20px);
+      }
+    }
+
+    @keyframes pulse-glow {
+
+      0%,
+      100% {
+        opacity: 0.5;
+      }
+
+      50% {
+        opacity: 1;
+      }
+    }
+
+    .animate-float {
+      animation: float 6s ease-in-out infinite;
+    }
+
+    .animate-pulse-glow {
+      animation: pulse-glow 2s ease-in-out infinite;
+    }
+
+    /* Loading spinner */
+    .spinner {
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-top: 3px solid #06b6d4;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+
+  <!-- React, ReactDOM, and Babel -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Framer Motion -->
+  <script src="https://unpkg.com/framer-motion@10/dist/framer-motion.js"></script>
+
+  <!-- Main Application -->
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+    const MotionObj = window.Motion || window.FramerMotion;
+    const { motion, AnimatePresence } = MotionObj;
+
+    // ==================== UTILITIES ====================
+
+    const parsePhysicsProblem = (problemText) => {
+      const text = problemText.toLowerCase();
+
+      // Detect problem type and sub-type
+      let type = 'vertical';
+      let subType = 'default'; // e.g., 'convex_lens', 'concave_mirror'
+
+      if (text.includes('projectile') || (text.includes('thrown') && text.includes('angle')) || (text.includes('angle') && text.includes('horizontal'))) {
+        type = 'projectile';
+      } else if (text.includes('pendulum') || text.includes('swing') || text.includes('period')) {
+        type = 'pendulum';
+      } else if (text.includes('lens') || text.includes('mirror') || text.includes('optic')) {
+        type = 'optics';
+        if (text.includes('concave') && text.includes('mirror')) subType = 'concave_mirror';
+        else if (text.includes('convex') && text.includes('mirror')) subType = 'convex_mirror';
+        else if (text.includes('concave') && text.includes('lens')) subType = 'concave_lens';
+        else subType = 'convex_lens'; // Default for "lens" or "convex lens"
+      } else if (text.includes('magnet') || text.includes('field') || text.includes('magnetic') || text.includes('tesla')) {
+        type = 'magnetic';
+      } else if (text.includes('drop') || text.includes('vertical') || text.includes('upward') || text.includes('fall')) {
+        type = 'vertical';
+      }
+
+      // Extract parameters
+      const extractNumber = (pattern) => {
+        const match = text.match(pattern);
+        return match ? parseFloat(match[1]) : null;
+      };
+
+      // Common / Specific Parameters
+      const velocity = extractNumber(/(\d+\.?\d*)\s*m\/s/) || 20;
+      const angle = extractNumber(/(\d+\.?\d*)\s*degree/) || extractNumber(/angle.*?(\d+\.?\d*)/) || 45;
+      const height = extractNumber(/(\d+\.?\d*)\s*m(?:eter)?(?:\s|$)/) || 0;
+      const gravity = 9.8;
+
+      // Pendulum
+      const length = extractNumber(/length.*?(\d+\.?\d*)\s*m/) || extractNumber(/(\d+\.?\d*)\s*m\s*long/) || 2;
+
+      // Optics
+      const focalLength = extractNumber(/focal.*?(\d+\.?\d*)\s*cm/) || 15;
+      const objectDistance = extractNumber(/object.*?(\d+\.?\d*)\s*cm/) || extractNumber(/distance.*?(\d+\.?\d*)\s*cm/) || 30;
+
+      // Magnetic
+      const magneticField = extractNumber(/(\d+\.?\d*)\s*t(?:esla)?/) || extractNumber(/field.*?(\d+\.?\d*)/) || 5;
+
+      return {
+        type,
+        subType,
+        parameters: {
+          velocity,
+          angle,
+          height,
+          gravity,
+          length,
+          focalLength,
+          objectDistance,
+          magneticField,
+          time: 0
+        },
+        problem: problemText,
+        explanation: generateExplanation(type, subType, { velocity, angle, height, gravity, length, focalLength, objectDistance, magneticField })
+      };
+    };
+
+    const generateExplanation = (type, subType, params) => {
+      const explanations = {
+        projectile: {
+          title: "Projectile Motion Analysis",
+          prerequisites: ["Kinematic Equations", "Trigonometry (Sin/Cos components)", "Vector Decomposition"],
+          concept: "Projectile motion is a form of motion experienced by an object or particle that is thrown near the Earth's surface and moves along a curved path under the action of gravity only.",
+          steps: [
+            { label: "Identify Knowns", value: `v₀ = ${params.velocity} m/s, θ = ${params.angle}°, g = ${params.gravity} m/s²` },
+            { label: "Step 1: Components", value: `v_x = v₀cosθ = ${(params.velocity * Math.cos(params.angle * Math.PI / 180)).toFixed(2)} m/s\n v_y = v₀sinθ = ${(params.velocity * Math.sin(params.angle * Math.PI / 180)).toFixed(2)} m/s` },
+            { label: "Step 2: Time of Flight", value: `T = 2v_y/g = ${(2 * params.velocity * Math.sin(params.angle * Math.PI / 180) / params.gravity).toFixed(2)} s` },
+            { label: "Step 3: Max Height", value: `H = v_y²/2g = ${((params.velocity * Math.sin(params.angle * Math.PI / 180)) ** 2 / (2 * params.gravity)).toFixed(2)} m` },
+            { label: "Step 4: Range", value: `R = v_x * T = ${((params.velocity ** 2 * Math.sin(2 * params.angle * Math.PI / 180)) / params.gravity).toFixed(2)} m` }
+          ],
+          equation: "y = x·tan(θ) - (g·x²)/(2·v²·cos²(θ))",
+          diagramType: "projectile_diagram"
+        },
+        vertical: {
+          title: "Vertical Motion Analysis",
+          prerequisites: ["1D Kinematics", "Acceleration due to Gravity"],
+          concept: "Vertical motion is the motion of an object along a vertical line under the influence of gravity.",
+          steps: [
+            { label: "Identify Knowns", value: `Initial Velocity (u) = ${params.velocity} m/s, Accel (a) = -${params.gravity} m/s²` },
+            { label: "Step 1: Max Height Time", value: `v = u + at → 0 = ${params.velocity} - ${params.gravity}t → t = ${(params.velocity / params.gravity).toFixed(2)} s` },
+            { label: "Step 2: Total Height", value: `s = ut + ½at² → Max H = ${(params.velocity ** 2 / (2 * params.gravity)).toFixed(2)} m` }
+          ],
+          equation: "v² = u² + 2as",
+          diagramType: "vertical_diagram"
+        },
+        pendulum: {
+          title: "Simple Harmonic Motion (Pendulum)",
+          prerequisites: ["Restoring Force", "Period & Frequency", "Small Angle Approximation"],
+          concept: "A simple pendulum consists of a mass hanging from a string of length L and fixed at a pivot point.",
+          steps: [
+            { label: "Identify Knowns", value: `Length (L) = ${params.length} m, Gravity (g) = ${params.gravity} m/s²` },
+            { label: "Step 1: Calculate Period", value: `T = 2π√(L/g) = 2π√(${params.length}/${params.gravity}) = ${(2 * Math.PI * Math.sqrt(params.length / params.gravity)).toFixed(2)} s` },
+            { label: "Step 2: Frequency", value: `f = 1/T = ${(1 / (2 * Math.PI * Math.sqrt(params.length / params.gravity))).toFixed(2)} Hz` }
+          ],
+          equation: "T = 2π√(L/g)",
+          diagramType: "pendulum_diagram"
+        },
+        optics: {
+          title: `${subType.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())} Analysis`,
+          prerequisites: ["Reflection/Refraction", "Sign Convention", "Mirror/Lens Formula"],
+          concept: "Light rays behave according to geometric laws. Real images are formed by converging rays, virtual by diverging extensions.",
+          steps: [
+            { label: "Identify Knowns", value: `f = ${params.focalLength} cm, u = -${params.objectDistance} cm (Cartesian sign convention)` },
+            { label: "Step 1: Lens/Mirror Eq", value: subType.includes('lens') ? "1/v - 1/u = 1/f" : "1/v + 1/u = 1/f" },
+            { label: "Step 2: Calculate v", value: "Solving for image distance..." },
+            { label: "Result", value: `v = ${(1 / ((1 / params.focalLength) - (1 / params.objectDistance))).toFixed(2)} cm` }
+          ],
+          equation: subType.includes('lens') ? "1/f = 1/v - 1/u" : "1/f = 1/v + 1/u",
+          diagramType: "optics_diagram"
+        },
+        magnetic: {
+          title: "Lorentz Force Analysis",
+          prerequisites: ["Cross Product (Right Hand Rule)", "Magnetic Fields", "Vectors"],
+          concept: "A charged particle moving in a magnetic field experiences a force perpendicular to both its velocity and the magnetic field.",
+          steps: [
+            { label: "Identify Knowns", value: `B = ${params.magneticField} T, v = ${params.velocity} m/s` },
+            { label: "Step 1: Force Direction", value: "Perpendicular to v and B (Right Hand Rule)" },
+            { label: "Step 2: Path", value: "Circular motion due to centripetal magnetic force" },
+            { label: "Step 3: Radius", value: `r = mv/qB (proportional to ${params.velocity}/${params.magneticField})` }
+          ],
+          equation: "F = q(v × B)",
+          diagramType: "magnetic_diagram"
+        }
+      };
+
+      return explanations[type] || explanations.vertical;
+    };
+
+    // ==================== ANIMATED BACKGROUND ====================
+
+    const AnimatedBackground = () => {
+      const canvasRef = useRef(null);
+
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const particles = [];
+        const particleCount = 80;
+
+        for (let i = 0; i < particleCount; i++) {
+          particles.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            vx: (Math.random() - 0.5) * 0.5,
+            vy: (Math.random() - 0.5) * 0.5,
+            size: Math.random() * 2 + 1
+          });
+        }
+
+        const animate = () => {
+          ctx.fillStyle = 'rgba(10, 10, 30, 0.1)';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          particles.forEach((p, i) => {
+            p.x += p.vx;
+            p.y += p.vy;
+
+            if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+            if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+
+            ctx.fillStyle = `rgba(100, 200, 255, ${0.3 + Math.random() * 0.3})`;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Connect nearby particles
+            for (let j = i + 1; j < particles.length; j++) {
+              const dx = particles[j].x - p.x;
+              const dy = particles[j].y - p.y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+
+              if (dist < 100) {
+                ctx.strokeStyle = `rgba(100, 200, 255, ${0.15 * (1 - dist / 100)})`;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(p.x, p.y);
+                ctx.lineTo(particles[j].x, particles[j].y);
+                ctx.stroke();
+              }
+            }
+          });
+
+          requestAnimationFrame(animate);
+        };
+
+        animate();
+
+        const handleResize = () => {
+          canvas.width = window.innerWidth;
+          canvas.height = window.innerHeight;
+        };
+
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+      }, []);
+
+      return (
+        <canvas
+          ref={canvasRef}
+          className="fixed inset-0 pointer-events-none"
+          style={{ zIndex: 0 }}
+        />
+      );
+    };
+
+    // ==================== LANDING PAGE ====================
+
+    const LandingPage = ({ onNavigate }) => {
+      const [hoveredFeature, setHoveredFeature] = useState(null);
+
+      const features = [
+        {
+          icon: "🧠",
+          title: "AI Problem Parser",
+          desc: "Natural language physics problem understanding"
+        },
+        {
+          icon: "🎬",
+          title: "Real-time Simulation",
+          desc: "Interactive physics animations with live parameters"
+        },
+        {
+          icon: "📊",
+          title: "Multi-View Analysis",
+          desc: "Synchronized graphs, equations, and visualizations"
+        },
+        {
+          icon: "🔮",
+          title: "What-If Scenarios",
+          desc: "Explore alternate physics conditions instantly"
+        }
+      ];
+
+      return (
+        <div className="min-h-screen relative overflow-hidden">
+          {/* Gradient Background */}
+          <div className="fixed inset-0 bg-gradient-to-br from-slate-950 via-blue-950 to-violet-950" />
+
+          {/* Grid Overlay */}
+          <div className="fixed inset-0 opacity-20"
+            style={{
+              backgroundImage: `
+                linear-gradient(rgba(100, 200, 255, 0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(100, 200, 255, 0.1) 1px, transparent 1px)
+              `,
+              backgroundSize: '50px 50px'
+            }}
+          />
+
+          <AnimatedBackground />
+
+          <div className="relative z-10">
+            {/* Hero Section */}
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8 }}
+              className="container mx-auto px-6 pt-32 pb-20"
+            >
+              <div className="text-center max-w-4xl mx-auto">
+                <motion.div
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ delay: 0.2, duration: 0.6 }}
+                  className="inline-block mb-6"
+                >
+                  <div className="px-6 py-2 rounded-full bg-cyan-500/20 border border-cyan-400/30 backdrop-blur-sm">
+                    <span className="text-cyan-300 font-medium text-sm tracking-wider">
+                      ⚡ INTERACTIVE PHYSICS INTELLIGENCE
+                    </span>
+                  </div>
+                </motion.div>
+
+                <motion.h1
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.4, duration: 0.8 }}
+                  className="text-7xl md:text-8xl font-bold mb-6 bg-gradient-to-r from-cyan-300 via-blue-400 to-violet-400 bg-clip-text text-transparent"
+                  style={{ fontFamily: "'Orbitron', sans-serif" }}
+                >
+                  PhysAI Lab
+                </motion.h1>
+
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.6, duration: 0.8 }}
+                  className="text-2xl text-blue-200/80 mb-12 leading-relaxed"
+                  style={{ fontFamily: "'DM Sans', sans-serif" }}
+                >
+                  Transform physics problems into interactive simulations.
+                  <br />
+                  <span className="text-cyan-300">Manipulate. Visualize. Understand.</span>
+                </motion.p>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.8, duration: 0.6 }}
+                  className="flex gap-6 justify-center flex-wrap"
+                >
+                  <button
+                    onClick={() => onNavigate('login')}
+                    className="group relative px-10 py-5 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-2xl font-bold text-lg text-white overflow-hidden shadow-lg shadow-cyan-500/50 hover:shadow-xl hover:shadow-cyan-500/60 transition-all duration-300 hover:scale-105"
+                  >
+                    <span className="relative z-10">Start Exploring</span>
+                    <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-violet-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                  </button>
+
+                  <button
+                    className="px-10 py-5 bg-white/10 backdrop-blur-md rounded-2xl font-bold text-lg text-white border border-white/20 hover:bg-white/20 transition-all duration-300 hover:scale-105"
+                  >
+                    View Demo
+                  </button>
+                </motion.div>
+              </div>
+            </motion.div>
+
+            {/* Features Grid */}
+            <motion.div
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 1, duration: 0.8 }}
+              className="container mx-auto px-6 py-20"
+            >
+              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {features.map((feature, i) => (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 1.2 + i * 0.1, duration: 0.6 }}
+                    onMouseEnter={() => setHoveredFeature(i)}
+                    onMouseLeave={() => setHoveredFeature(null)}
+                    className="relative group"
+                  >
+                    <div className={`
+                      p-8 rounded-3xl bg-white/5 backdrop-blur-lg border transition-all duration-500
+                      ${hoveredFeature === i
+                        ? 'border-cyan-400/50 bg-white/10 transform -translate-y-2 shadow-xl shadow-cyan-500/20'
+                        : 'border-white/10 hover:border-cyan-400/30'
+                      }
+                    `}>
+                      <div className="text-5xl mb-4 transform transition-transform duration-300 group-hover:scale-110 group-hover:rotate-6">
+                        {feature.icon}
+                      </div>
+                      <h3 className="text-xl font-bold text-white mb-3" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                        {feature.title}
+                      </h3>
+                      <p className="text-blue-200/70 leading-relaxed">
+                        {feature.desc}
+                      </p>
+                    </div>
+
+                    {hoveredFeature === i && (
+                      <motion.div
+                        layoutId="feature-glow"
+                        className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 to-blue-500/20 rounded-3xl blur-xl -z-10"
+                      />
+                    )}
+                  </motion.div>
+                ))}
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      );
+    };
+
+    // ==================== LOGIN PAGE ====================
+
+    const LoginPage = ({ onNavigate }) => {
+      const [isSignup, setIsSignup] = useState(false);
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        onNavigate('dashboard');
+      };
+
+      return (
+        <div className="min-h-screen relative overflow-hidden flex items-center justify-center">
+          <div className="fixed inset-0 bg-gradient-to-br from-slate-950 via-blue-950 to-violet-950" />
+          <AnimatedBackground />
+
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5 }}
+            className="relative z-10 w-full max-w-md mx-6"
+          >
+            <div className="relative">
+              {/* Glassmorphism Card */}
+              <div className="p-10 rounded-3xl bg-white/10 backdrop-blur-xl border border-white/20 shadow-2xl">
+                <div className="text-center mb-8">
+                  <h2 className="text-4xl font-bold text-white mb-2" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                    {isSignup ? 'Create Account' : 'Welcome Back'}
+                  </h2>
+                  <p className="text-blue-200/70">
+                    {isSignup ? 'Start your physics journey' : 'Continue exploring physics'}
+                  </p>
+                </div>
+
+                <form onSubmit={handleSubmit} className="space-y-5">
+                  <div>
+                    <label className="block text-sm font-medium text-blue-200 mb-2">Email</label>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-blue-300/30 focus:outline-none focus:border-cyan-400/50 focus:bg-white/10 transition-all duration-300"
+                      placeholder="your@email.com"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-blue-200 mb-2">Password</label>
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder-blue-300/30 focus:outline-none focus:border-cyan-400/50 focus:bg-white/10 transition-all duration-300"
+                      placeholder="••••••••"
+                      required
+                    />
+                  </div>
+
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    type="submit"
+                    className="w-full py-4 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl font-bold text-white shadow-lg shadow-cyan-500/50 hover:shadow-xl hover:shadow-cyan-500/60 transition-all duration-300"
+                  >
+                    {isSignup ? 'Sign Up' : 'Sign In'}
+                  </motion.button>
+                </form>
+
+                <div className="mt-6 text-center">
+                  <button
+                    onClick={() => setIsSignup(!isSignup)}
+                    className="text-cyan-300 hover:text-cyan-200 transition-colors duration-300"
+                  >
+                    {isSignup ? 'Already have an account? Sign in' : "Don't have an account? Sign up"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Glow Effect */}
+              <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 to-blue-500/20 rounded-3xl blur-3xl -z-10" />
+            </div>
+          </motion.div>
+        </div>
+      );
+    };
+
+    // ==================== DASHBOARD ====================
+
+    const Dashboard = ({ onNavigate }) => {
+      const subjects = [
+        { name: 'Physics', icon: '⚛️', active: true, color: 'from-cyan-500 to-blue-600' },
+        { name: 'Chemistry', icon: '🧪', active: false, color: 'from-purple-500 to-pink-600' },
+        { name: 'Mathematics', icon: '📐', active: false, color: 'from-orange-500 to-red-600' },
+        { name: 'Biology', icon: '🧬', active: false, color: 'from-green-500 to-emerald-600' }
+      ];
+
+      return (
+        <div className="min-h-screen relative overflow-hidden">
+          <div className="fixed inset-0 bg-gradient-to-br from-slate-950 via-blue-950 to-violet-950" />
+          <AnimatedBackground />
+
+          <div className="relative z-10">
+            {/* Header */}
+            <div className="container mx-auto px-6 py-8">
+              <div className="flex justify-between items-center">
+                <h1 className="text-3xl font-bold text-white" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                  PhysAI Lab
+                </h1>
+                <button
+                  onClick={() => onNavigate('landing')}
+                  className="px-6 py-2 bg-white/10 backdrop-blur-md rounded-lg text-white hover:bg-white/20 transition-all duration-300"
+                >
+                  Logout
+                </button>
+              </div>
+            </div>
+
+            {/* Dashboard Content */}
+            <div className="container mx-auto px-6 py-12">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-12"
+              >
+                <h2 className="text-5xl font-bold text-white mb-4" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                  Choose Your Subject
+                </h2>
+                <p className="text-blue-200/70 text-lg">
+                  Select a subject to start exploring interactive simulations
+                </p>
+              </motion.div>
+
+              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {subjects.map((subject, i) => (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.1, duration: 0.5 }}
+                    whileHover={{ y: -8, scale: 1.02 }}
+                    onClick={() => subject.active && onNavigate('problem-input')}
+                    className={`
+                      relative p-8 rounded-3xl cursor-pointer overflow-hidden
+                      ${subject.active
+                        ? 'bg-white/10 backdrop-blur-lg border border-white/20'
+                        : 'bg-white/5 backdrop-blur-lg border border-white/10 opacity-60'
+                      }
+                    `}
+                  >
+                    <div className="relative z-10">
+                      <div className="text-6xl mb-4 transform transition-transform duration-300 hover:scale-110 hover:rotate-12">
+                        {subject.icon}
+                      </div>
+                      <h3 className="text-2xl font-bold text-white mb-2" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                        {subject.name}
+                      </h3>
+                      <p className="text-blue-200/70">
+                        {subject.active ? 'Click to start' : 'Coming soon'}
+                      </p>
+                    </div>
+
+                    {subject.active && (
+                      <>
+                        <div className={`absolute inset-0 bg-gradient-to-br ${subject.color} opacity-20`} />
+                        <motion.div
+                          className={`absolute inset-0 bg-gradient-to-br ${subject.color} opacity-0 hover:opacity-30 transition-opacity duration-300`}
+                        />
+                      </>
+                    )}
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ==================== PROBLEM INPUT PAGE ====================
+
+    const ProblemInputPage = ({ onNavigate, onSubmitProblem }) => {
+      const [problem, setProblem] = useState('');
+      const [isDragging, setIsDragging] = useState(false);
+
+      const sampleProblems = [
+        "A ball is thrown vertically upward with a velocity of 25 m/s. What is the maximum height?",
+        "A projectile is launched at 45 degrees with initial velocity of 30 m/s. Find the range.",
+        "A simple pendulum of length 2m swings with small amplitude. Find its period.",
+        "A lens with focal length 15cm forms an image. Find the image position if object is at 30cm."
+      ];
+
+      const handleSubmit = () => {
+        if (problem.trim()) {
+          onSubmitProblem(problem);
+          onNavigate('simulation');
+        }
+      };
+
+      return (
+        <div className="min-h-screen relative overflow-hidden">
+          <div className="fixed inset-0 bg-gradient-to-br from-slate-950 via-blue-950 to-violet-950" />
+          <AnimatedBackground />
+
+          <div className="relative z-10">
+            <div className="container mx-auto px-6 py-8">
+              <div className="flex justify-between items-center">
+                <h1 className="text-3xl font-bold text-white" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                  PhysAI Lab
+                </h1>
+                <button
+                  onClick={() => onNavigate('dashboard')}
+                  className="px-6 py-2 bg-white/10 backdrop-blur-md rounded-lg text-white hover:bg-white/20 transition-all duration-300"
+                >
+                  ← Back
+                </button>
+              </div>
+            </div>
+
+            <div className="container mx-auto px-6 py-12">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-center mb-12"
+              >
+                <h2 className="text-5xl font-bold text-white mb-4" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                  Enter Physics Problem
+                </h2>
+                <p className="text-blue-200/70 text-lg">
+                  Type or paste your physics problem and watch it come to life
+                </p>
+              </motion.div>
+
+              {/* Input Area */}
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.2 }}
+                className="max-w-3xl mx-auto mb-12"
+              >
+                <div
+                  className={`
+                    relative p-8 rounded-3xl bg-white/10 backdrop-blur-lg border-2 transition-all duration-300
+                    ${isDragging ? 'border-cyan-400 bg-white/20' : 'border-white/20'}
+                  `}
+                  onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragging(false);
+                    const text = e.dataTransfer.getData('text');
+                    setProblem(text);
+                  }}
+                >
+                  <textarea
+                    value={problem}
+                    onChange={(e) => setProblem(e.target.value)}
+                    placeholder="Enter your physics problem here... (e.g., 'A ball is thrown upward with 20 m/s velocity...')"
+                    className="w-full h-48 bg-transparent text-white text-lg placeholder-blue-300/30 outline-none resize-none"
+                    style={{ fontFamily: "'DM Sans', sans-serif" }}
+                  />
+
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleSubmit}
+                    disabled={!problem.trim()}
+                    className="mt-4 px-8 py-4 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl font-bold text-white shadow-lg shadow-cyan-500/50 hover:shadow-xl hover:shadow-cyan-500/60 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Analyze & Simulate →
+                  </motion.button>
+                </div>
+              </motion.div>
+
+              {/* Sample Problems */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.4 }}
+                className="max-w-3xl mx-auto"
+              >
+                <h3 className="text-xl font-bold text-white mb-6" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                  Or try a sample problem:
+                </h3>
+                <div className="grid md:grid-cols-2 gap-4">
+                  {sampleProblems.map((sample, i) => (
+                    <motion.button
+                      key={i}
+                      whileHover={{ scale: 1.02, y: -2 }}
+                      onClick={() => setProblem(sample)}
+                      className="p-6 rounded-2xl bg-white/5 backdrop-blur-md border border-white/10 hover:border-cyan-400/50 hover:bg-white/10 text-left transition-all duration-300"
+                    >
+                      <div className="text-cyan-400 font-bold mb-2">Example {i + 1}</div>
+                      <div className="text-blue-200/80 text-sm leading-relaxed">{sample}</div>
+                    </motion.button>
+                  ))}
+                </div>
+              </motion.div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ==================== SIMULATION ENGINE ====================
+
+    const SimulationCanvas = ({ type, subType, parameters, isPlaying }) => {
+      const canvasRef = useRef(null);
+      const animationRef = useRef(null);
+      const timeRef = useRef(0);
+
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+        canvas.width = 800;
+        canvas.height = 400;
+
+        const drawProjectile = (t) => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          // Helper for Stats Overlay
+          const drawStatsBox = (lines) => {
+            const padding = 15;
+            const lineHeight = 20;
+            const boxWidth = 200;
+            const boxHeight = lines.length * lineHeight + padding * 2;
+            const x = 20;
+            const y = 20;
+
+            // Glassmorphism Box
+            ctx.save();
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.strokeStyle = 'rgba(100, 200, 255, 0.3)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            // Manual rounded rectangle (for browser compatibility)
+            const radius = 12;
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + boxWidth - radius, y);
+            ctx.quadraticCurveTo(x + boxWidth, y, x + boxWidth, y + radius);
+            ctx.lineTo(x + boxWidth, y + boxHeight - radius);
+            ctx.quadraticCurveTo(x + boxWidth, y + boxHeight, x + boxWidth - radius, y + boxHeight);
+            ctx.lineTo(x + radius, y + boxHeight);
+            ctx.quadraticCurveTo(x, y + boxHeight, x, y + boxHeight - radius);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // Text
+            ctx.fillStyle = '#fff';
+            ctx.font = '14px "Space Grotesk", sans-serif';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+
+            lines.forEach((line, i) => {
+              ctx.fillStyle = line.color || '#fff';
+              ctx.fillText(line.text, x + padding, y + padding + i * lineHeight);
+            });
+            ctx.restore();
+          };
+
+          // Draw ground
+          ctx.fillStyle = 'rgba(100, 200, 255, 0.1)';
+          ctx.fillRect(0, 350, canvas.width, 50);
+
+          // Draw trajectory
+          const v0 = parameters.velocity;
+          const angle = parameters.angle * Math.PI / 180;
+          const g = parameters.gravity;
+
+          ctx.strokeStyle = 'rgba(100, 200, 255, 0.3)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+
+          for (let x = 0; x < canvas.width; x += 5) {
+            const realX = x / 10;
+            const y = realX * Math.tan(angle) - (g * realX * realX) / (2 * v0 * v0 * Math.cos(angle) * Math.cos(angle));
+            const canvasY = 350 - y * 10;
+
+            if (canvasY >= 0 && canvasY <= 350) {
+              if (x === 0) ctx.moveTo(x, canvasY);
+              else ctx.lineTo(x, canvasY);
+            }
+          }
+          ctx.stroke();
+
+          // Draw projectile
+          const x = v0 * Math.cos(angle) * t * 10;
+          const y = (v0 * Math.sin(angle) * t - 0.5 * g * t * t) * 10;
+          const canvasY = 350 - y;
+
+          if (canvasY <= 350 && x <= canvas.width) {
+            // Projectile
+            ctx.fillStyle = '#64C8FF';
+            ctx.beginPath();
+            ctx.arc(x, canvasY, 8, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.shadowColor = '#64C8FF';
+            ctx.shadowBlur = 20;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Velocity vector
+            const vx = v0 * Math.cos(angle);
+            const vy = v0 * Math.sin(angle) - g * t;
+
+            ctx.strokeStyle = '#FF6B6B';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(x, canvasY);
+            ctx.lineTo(x + vx * 5, canvasY - vy * 5);
+            ctx.stroke();
+
+            // Arrow head
+            const arrowAngle = Math.atan2(-vy, vx);
+            ctx.fillStyle = '#FF6B6B';
+            ctx.beginPath();
+            ctx.moveTo(x + vx * 5, canvasY - vy * 5);
+            ctx.lineTo(
+              x + vx * 5 - 10 * Math.cos(arrowAngle - Math.PI / 6),
+              canvasY - vy * 5 + 10 * Math.sin(arrowAngle - Math.PI / 6)
+            );
+            ctx.lineTo(
+              x + vx * 5 - 10 * Math.cos(arrowAngle + Math.PI / 6),
+              canvasY - vy * 5 + 10 * Math.sin(arrowAngle + Math.PI / 6)
+            );
+            ctx.closePath();
+            ctx.fill();
+
+            // Stats Overlay
+            const vCurrent = Math.sqrt(vx * vx + vy * vy);
+            drawStatsBox([
+              { text: `Time: ${t.toFixed(2)} s`, color: '#ccc' },
+              { text: `Velocity: ${vCurrent.toFixed(1)} m/s`, color: '#FF6B6B' },
+              { text: `Height: ${(y / 10).toFixed(1)} m`, color: '#64C8FF' },
+              { text: `Distance: ${(x / 10).toFixed(1)} m`, color: '#64C8FF' }
+            ]);
+          }
+        };
+
+        const drawVertical = (t) => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          const v0 = parameters.velocity;
+          const g = parameters.gravity;
+
+          const y = (v0 * t - 0.5 * g * t * t) * 10;
+          const canvasY = 350 - y;
+          const v = v0 - g * t;
+
+          if (canvasY <= 350 && canvasY >= 0) {
+            ctx.fillStyle = '#64C8FF';
+            ctx.beginPath();
+            ctx.arc(400, canvasY, 10, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.shadowColor = '#64C8FF';
+            ctx.shadowBlur = 20;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Velocity arrow
+            ctx.strokeStyle = '#FF6B6B';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(400, canvasY);
+            ctx.lineTo(400, canvasY - v * 3);
+            ctx.stroke();
+
+            // Helper for Stats Overlay (Redefined here or hoisted? Better hoisted but for now redefining inside scope to be safe with this replace block)
+            // ... actually I can't redefine if I want to reuse.
+            // I will define drawStatsBox ONCE at the top of drawProjectile and copy it to others or hoist it.
+            // Since I am replacing the whole block including drawProjectile, I can define it inside useEffect scope but outside drawProjectile.
+            // ERROR: My StartLine is 838 which is inside useEffect but marks start of drawProjectile definition?
+            // No, 838 is `const drawProjectile = (t) => {`.
+            // I should hoist `drawStatsBox` to be inside `useEffect` scope.
+            // Let's adjust the replacement to include the definition of drawStatsBox before drawProjectile.
+            // But my StartLine is 838.
+            // I need to change StartLine to 838.
+            // Wait, the ReplacementContent starts with `const drawStatsBox`.
+            // So `drawStatsBox` will be defined inside `drawProjectile`? No, that's bad.
+            // I will put it before.
+          }
+
+          // Stats Overlay
+          const drawStatsBox = (lines) => {
+            const padding = 15;
+            const lineHeight = 20;
+            const boxWidth = 200;
+            const boxHeight = lines.length * lineHeight + padding * 2;
+            const x = 20;
+            const y = 20;
+
+            ctx.save();
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.strokeStyle = 'rgba(100, 200, 255, 0.3)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            // Manual rounded rectangle (for browser compatibility)
+            const radius = 12;
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + boxWidth - radius, y);
+            ctx.quadraticCurveTo(x + boxWidth, y, x + boxWidth, y + radius);
+            ctx.lineTo(x + boxWidth, y + boxHeight - radius);
+            ctx.quadraticCurveTo(x + boxWidth, y + boxHeight, x + boxWidth - radius, y + boxHeight);
+            ctx.lineTo(x + radius, y + boxHeight);
+            ctx.quadraticCurveTo(x, y + boxHeight, x, y + boxHeight - radius);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = '#fff';
+            ctx.font = '14px "Space Grotesk", sans-serif';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+
+            lines.forEach((line, i) => {
+              ctx.fillStyle = line.color || '#fff';
+              ctx.fillText(line.text, x + padding, y + padding + i * lineHeight);
+            });
+            ctx.restore();
+          };
+
+          drawStatsBox([
+            { text: `Time: ${t.toFixed(2)} s`, color: '#ccc' },
+            { text: `Velocity: ${v.toFixed(1)} m/s`, color: '#FF6B6B' },
+            { text: `Height: ${(y / 10).toFixed(1)} m`, color: '#64C8FF' }
+          ]);
+        };
+
+        const drawPendulum = (t) => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          const drawStatsBox = (lines) => {
+            const padding = 15;
+            const lineHeight = 20;
+            const boxWidth = 200;
+            const boxHeight = lines.length * lineHeight + padding * 2;
+            const x = 20;
+            const y = 20;
+
+            ctx.save();
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.strokeStyle = 'rgba(100, 200, 255, 0.3)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            // Manual rounded rectangle (for browser compatibility)
+            const radius = 12;
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + boxWidth - radius, y);
+            ctx.quadraticCurveTo(x + boxWidth, y, x + boxWidth, y + radius);
+            ctx.lineTo(x + boxWidth, y + boxHeight - radius);
+            ctx.quadraticCurveTo(x + boxWidth, y + boxHeight, x + boxWidth - radius, y + boxHeight);
+            ctx.lineTo(x + radius, y + boxHeight);
+            ctx.quadraticCurveTo(x, y + boxHeight, x, y + boxHeight - radius);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = '#fff';
+            ctx.font = '14px "Space Grotesk", sans-serif';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+
+            lines.forEach((line, i) => {
+              ctx.fillStyle = line.color || '#fff';
+              ctx.fillText(line.text, x + padding, y + padding + i * lineHeight);
+            });
+            ctx.restore();
+          };
+
+          const lengthM = parameters.length;
+          const g = parameters.gravity;
+
+          // Scale length for visualization (2m = 200px approx)
+          const pixelLength = lengthM * 80;
+
+          // Simple Harmonic Motion Equation: theta = theta0 * cos(sqrt(g/L) * t)
+          // theta0 is amplitude (assume 30 degrees = 0.52 rad)
+          const omega = Math.sqrt(g / lengthM);
+          const angle = 0.5 * Math.sin(omega * t); // using sin to start from center or cos for extreme
+          const angularVel = 0.5 * omega * Math.cos(omega * t);
+          const linearVel = angularVel * lengthM;
+
+          const x = 400 + pixelLength * Math.sin(angle);
+          const y = 50 + pixelLength * Math.cos(angle);
+
+          // Rope
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(400, 50);
+          ctx.lineTo(x, y);
+          ctx.stroke();
+
+          // Pivot
+          ctx.fillStyle = '#888';
+          ctx.beginPath();
+          ctx.arc(400, 50, 5, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Bob
+          ctx.fillStyle = '#64C8FF';
+          ctx.beginPath();
+          ctx.arc(x, y, 15, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.shadowColor = '#64C8FF';
+          ctx.shadowBlur = 20;
+          ctx.fill();
+          ctx.shadowBlur = 0;
+
+          drawStatsBox([
+            { text: `Time: ${t.toFixed(2)} s`, color: '#ccc' },
+            { text: `Length: ${lengthM.toFixed(2)} m`, color: '#64C8FF' },
+            { text: `Angle: ${(angle * 180 / Math.PI).toFixed(1)}°`, color: '#ccc' },
+            { text: `Velocity: ${Math.abs(linearVel).toFixed(2)} m/s`, color: '#FF6B6B' }
+          ]);
+        };
+
+        const drawOptics = () => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          const drawStatsBox = (lines) => {
+            const padding = 15;
+            const lineHeight = 20;
+            const boxWidth = 200;
+            const boxHeight = lines.length * lineHeight + padding * 2;
+            const x = 20;
+            const y = 20;
+
+            ctx.save();
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.strokeStyle = 'rgba(100, 200, 255, 0.3)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            // Manual rounded rectangle (for browser compatibility)
+            const radius = 12;
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + boxWidth - radius, y);
+            ctx.quadraticCurveTo(x + boxWidth, y, x + boxWidth, y + radius);
+            ctx.lineTo(x + boxWidth, y + boxHeight - radius);
+            ctx.quadraticCurveTo(x + boxWidth, y + boxHeight, x + boxWidth - radius, y + boxHeight);
+            ctx.lineTo(x + radius, y + boxHeight);
+            ctx.quadraticCurveTo(x, y + boxHeight, x, y + boxHeight - radius);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = '#fff';
+            ctx.font = '14px "Space Grotesk", sans-serif';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+
+            lines.forEach((line, i) => {
+              ctx.fillStyle = line.color || '#fff';
+              ctx.fillText(line.text, x + padding, y + padding + i * lineHeight);
+            });
+            ctx.restore();
+          };
+
+          const f = parameters.focalLength * 3; // Scale for viewing
+          const u = parameters.objectDistance * 3;
+
+          // Lens Center
+          const cx = 400;
+          const cy = 200;
+
+          // Draw Optical Axis
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(0, cy);
+          ctx.lineTo(800, cy);
+          ctx.stroke();
+
+          // Draw Lens (Convex)
+          ctx.fillStyle = 'rgba(100, 200, 255, 0.2)';
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, 10, 100, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = 'rgba(100, 200, 255, 0.8)';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          // Draw Focal Points
+          ctx.fillStyle = '#FFF';
+          ctx.beginPath();
+          ctx.arc(cx - f, cy, 3, 0, Math.PI * 2);
+          ctx.arc(cx + f, cy, 3, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillText('F', cx - f - 5, cy + 20);
+          ctx.fillText('F', cx + f - 5, cy + 20);
+
+          // Draw Object (Arrow)
+          const objH = 60;
+          const objX = cx - u;
+          let magnification = 0;
+          let imageDist = 0;
+
+          if (objX > -1000) { // Safety check
+            ctx.strokeStyle = '#FF6B6B';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(objX, cy);
+            ctx.lineTo(objX, cy - objH);
+            ctx.stroke();
+            // Arrow head
+            ctx.beginPath();
+            ctx.moveTo(objX, cy - objH);
+            ctx.lineTo(objX - 5, cy - objH + 10);
+            ctx.lineTo(objX + 5, cy - objH + 10);
+            ctx.fill();
+
+            // Ray 1: Parallel then through F
+            ctx.strokeStyle = 'rgba(255, 255, 100, 0.5)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(objX, cy - objH);
+            ctx.lineTo(cx, cy - objH); // Hit lens
+            ctx.lineTo(cx + f + 300, cy - objH + (300 / f) * objH); // Through F extended
+            ctx.stroke();
+
+            // Ray 2: Through Center
+            ctx.beginPath();
+            ctx.moveTo(objX, cy - objH);
+            ctx.lineTo(cx + 300, cy - objH + (300 / u) * objH); // Center extended
+            ctx.stroke();
+
+            // Calculate Image Position
+            // 1/v = 1/f - 1/u
+            const v_val = (1 / ((1 / parameters.focalLength) - (1 / parameters.objectDistance)));
+            const v = v_val * 3;
+            imageDist = v_val;
+            magnification = -v_val / parameters.objectDistance;
+
+            if (v_val > 0) {
+              // Real Image
+              const imgX = cx + v;
+              const imgH = objH * magnification;
+
+              ctx.strokeStyle = '#64C8FF';
+              ctx.lineWidth = 3;
+              ctx.beginPath();
+              ctx.moveTo(imgX, cy);
+              ctx.lineTo(imgX, cy - imgH);
+              ctx.stroke();
+
+              // Ray trace to image
+              ctx.strokeStyle = 'rgba(100, 200, 255, 0.8)';
+              ctx.beginPath();
+              ctx.moveTo(cx, cy - objH); // From lens top hit point
+              ctx.lineTo(imgX, cy - imgH);
+              ctx.moveTo(cx, cy); // From center
+              ctx.lineTo(imgX, cy - imgH);
+              ctx.stroke();
+            }
+          }
+
+          drawStatsBox([
+            { text: `Object Dist (u): ${parameters.objectDistance.toFixed(1)} cm`, color: '#FF6B6B' },
+            { text: `Focal Length (f): ${parameters.focalLength.toFixed(1)} cm`, color: '#ccc' },
+            { text: `Image Dist (v): ${imageDist.toFixed(1)} cm`, color: '#64C8FF' },
+            { text: `Magnification: ${magnification.toFixed(2)}x`, color: '#ccc' }
+          ]);
+        };
+
+        const drawMagnetic = (t) => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          const drawStatsBox = (lines) => {
+            const padding = 15;
+            const lineHeight = 20;
+            const boxWidth = 200;
+            const boxHeight = lines.length * lineHeight + padding * 2;
+            const x = 20;
+            const y = 20;
+
+            ctx.save();
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+            ctx.strokeStyle = 'rgba(100, 200, 255, 0.3)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            // Manual rounded rectangle (for browser compatibility)
+            const radius = 12;
+            ctx.moveTo(x + radius, y);
+            ctx.lineTo(x + boxWidth - radius, y);
+            ctx.quadraticCurveTo(x + boxWidth, y, x + boxWidth, y + radius);
+            ctx.lineTo(x + boxWidth, y + boxHeight - radius);
+            ctx.quadraticCurveTo(x + boxWidth, y + boxHeight, x + boxWidth - radius, y + boxHeight);
+            ctx.lineTo(x + radius, y + boxHeight);
+            ctx.quadraticCurveTo(x, y + boxHeight, x, y + boxHeight - radius);
+            ctx.lineTo(x, y + radius);
+            ctx.quadraticCurveTo(x, y, x + radius, y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = '#fff';
+            ctx.font = '14px "Space Grotesk", sans-serif';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+
+            lines.forEach((line, i) => {
+              ctx.fillStyle = line.color || '#fff';
+              ctx.fillText(line.text, x + padding, y + padding + i * lineHeight);
+            });
+            ctx.restore();
+          };
+
+          // Magnet
+          ctx.fillStyle = '#FF6B6B';
+          ctx.fillRect(350, 150, 50, 100);
+          ctx.fillStyle = '#64C8FF';
+          ctx.fillRect(400, 150, 50, 100);
+
+          // Field lines density based on strength
+          const strength = parameters.magneticField || 5;
+          const density = Math.floor(strength);
+
+          const centerX = 400;
+          const centerY = 200;
+
+          for (let i = 0; i < density * 2; i++) {
+            const angle = (i / (density * 2)) * Math.PI * 2;
+            const radius = 80 + Math.sin(t * 2 + i) * (strength * 2);
+
+            ctx.strokeStyle = `rgba(100, 200, 255, ${0.2 + (strength / 20)})`;
+            ctx.lineWidth = 1 + strength / 10;
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, radius, angle - 0.3, angle + 0.3);
+            ctx.stroke();
+          }
+
+          // Particle moving
+          const v = parameters.velocity || 20;
+          const r = v * 2; // radius of curvature proportional to velocity (simplified)
+          const px = centerX + r * Math.cos(t * v / 10);
+          const py = centerY + r * Math.sin(t * v / 10);
+
+          ctx.fillStyle = '#FFFF00';
+          ctx.beginPath();
+          ctx.arc(px, py, 5, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#FFF';
+          ctx.font = '20px sans-serif';
+          ctx.fillText('N', 365, 205);
+          ctx.fillText('S', 415, 205);
+
+          drawStatsBox([
+            { text: `B Field: ${strength.toFixed(1)} T`, color: '#ccc' },
+            { text: `Velocity: ${v.toFixed(1)} m/s`, color: '#FF6B6B' },
+            { text: `Radius: ${r.toFixed(1)} m`, color: '#64C8FF' }
+          ]);
+        };
+
+        const animate = () => {
+          if (isPlaying) {
+            timeRef.current += 0.016;
+
+            switch (type) {
+              case 'projectile':
+                drawProjectile(timeRef.current);
+                break;
+              case 'vertical':
+                drawVertical(timeRef.current);
+                break;
+              case 'pendulum':
+                drawPendulum(timeRef.current);
+                break;
+              case 'optics':
+                drawOptics();
+                break;
+              case 'magnetic':
+                drawMagnetic(timeRef.current);
+                break;
+            }
+          }
+
+          animationRef.current = requestAnimationFrame(animate);
+        };
+
+        animate();
+
+        return () => {
+          if (animationRef.current) {
+            cancelAnimationFrame(animationRef.current);
+          }
+        };
+      }, [type, parameters, isPlaying]);
+
+      const handleReset = () => {
+        timeRef.current = 0;
+      };
+
+      return (
+        <div className="relative">
+          <canvas
+            ref={canvasRef}
+            className="w-full h-auto bg-black/20 rounded-2xl border border-white/10"
+            style={{ maxWidth: '800px', aspectRatio: '2/1' }}
+          />
+          <button
+            onClick={handleReset}
+            className="absolute bottom-4 right-4 px-4 py-2 bg-white/10 backdrop-blur-md rounded-lg text-white hover:bg-white/20 transition-all duration-300"
+          >
+            Reset
+          </button>
+        </div>
+      );
+    };
+
+    // ==================== GRAPH COMPONENT ====================
+
+    const GraphView = ({ type, subType, parameters, time }) => {
+      const canvasRef = useRef(null);
+
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+        canvas.width = 400;
+        canvas.height = 300;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Styling
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.lineWidth = 2;
+        ctx.fillStyle = '#FFF';
+        ctx.font = '12px sans-serif';
+
+        // default config
+        let xLabel = 'Time (s)';
+        let yLabel = 'Value';
+        let xMin = 0, xMax = 10, yMin = 0, yMax = 100;
+        let plotFunction = (x) => 0;
+        let showGraph = true;
+
+        // Configure based on type
+        if (type === 'projectile' || type === 'vertical') {
+          yLabel = 'Height (m)';
+          const v0 = parameters.velocity;
+          const angle = type === 'projectile' ? parameters.angle * Math.PI / 180 : Math.PI / 2;
+          const g = parameters.gravity;
+
+          yMax = (v0 * v0) / (2 * g) * 1.5; // Scale y to max height + padding
+          xMax = (2 * v0 * Math.sin(angle)) / g * 1.2; // Scale x to flight time
+          if (xMax < 1) xMax = 1;
+
+          plotFunction = (t) => v0 * Math.sin(angle) * t - 0.5 * g * t * t;
+
+        } else if (type === 'pendulum') {
+          yLabel = 'Angle (rad)';
+          const L = parameters.length;
+          const g = parameters.gravity;
+          const omega = Math.sqrt(g / L);
+          yMin = -1; yMax = 1;
+
+          plotFunction = (t) => 0.5 * Math.sin(omega * t);
+
+        } else if (type === 'optics') {
+          xLabel = 'Object Dist u (cm)';
+          yLabel = 'Image Dist v (cm)';
+          const f = parameters.focalLength;
+          xMin = 0; xMax = f * 5;
+          yMin = -f * 5; yMax = f * 5;
+
+          plotFunction = (u) => {
+            if (Math.abs(u - f) < 0.1) return null; // asymptotes
+            if (subType === 'convex_lens' || subType === 'concave_mirror') {
+              return (f * u) / (u - f);
+            }
+            return 0;
+          };
+        } else if (type === 'magnetic') {
+          xLabel = 'Velocity (m/s)';
+          yLabel = 'Radius (m)';
+          const B = parameters.magneticField;
+          xMax = 100; yMax = 100; // max v
+
+          // r = mv/qB. Assume m/q = 1
+          plotFunction = (v) => v / B;
+        }
+
+        // Draw Axes
+        const margin = 40;
+        const w = canvas.width - margin * 2;
+        const h = canvas.height - margin * 2;
+
+        ctx.beginPath();
+        // Y Axis
+        ctx.moveTo(margin, margin);
+        ctx.lineTo(margin, canvas.height - margin);
+        // X Axis 
+        ctx.lineTo(canvas.width - margin, canvas.height - margin);
+        ctx.stroke();
+
+        // Labels
+        ctx.fillText(yLabel, 10, margin - 10);
+        ctx.fillText(xLabel, canvas.width - margin, canvas.height - 10);
+
+        // Plot
+        if (showGraph) {
+          ctx.beginPath();
+          ctx.strokeStyle = '#64C8FF';
+          ctx.lineWidth = 2;
+
+          const mapX = (val) => margin + ((val - xMin) / (xMax - xMin)) * w;
+          const mapY = (val) => (canvas.height - margin) - ((val - yMin) / (yMax - yMin)) * h;
+
+          let first = true;
+          for (let i = 0; i <= 100; i++) {
+            const xVal = xMin + (i / 100) * (xMax - xMin);
+            const yVal = plotFunction(xVal);
+
+            if (yVal !== null && yVal >= yMin && yVal <= yMax) {
+              const canvasX = mapX(xVal);
+              const canvasY = mapY(yVal);
+
+              if (first) { ctx.moveTo(canvasX, canvasY); first = false; }
+              else ctx.lineTo(canvasX, canvasY);
+            } else {
+              first = true; // Break the line (asymptote)
+            }
+          }
+          ctx.stroke();
+
+          // Draw current point
+          let currentX, currentY;
+          if (type === 'optics') {
+            currentX = parameters.objectDistance;
+            currentY = plotFunction(currentX);
+          } else if (type === 'magnetic') {
+            currentX = parameters.velocity;
+            currentY = plotFunction(currentX);
+          } else {
+            currentX = parameters.time || (time % 10); // Use time
+            currentY = plotFunction(currentX);
+          }
+
+          if (currentY !== null && currentY >= yMin && currentY <= yMax) {
+            ctx.fillStyle = '#FF6B6B';
+            ctx.beginPath();
+            ctx.arc(mapX(currentX), mapY(currentY), 5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+
+      }, [type, subType, parameters, time]);
+
+      return (
+        <canvas
+          ref={canvasRef}
+          className="w-full h-auto bg-black/20 rounded-xl border border-white/10"
+        />
+      );
+    };
+
+    // ==================== SIMULATION PAGE ====================
+
+    const SimulationPage = ({ onNavigate, problemData }) => {
+      const [paramsA, setParamsA] = useState({ ...problemData.parameters });
+      const [paramsB, setParamsB] = useState({ ...problemData.parameters });
+      const [isPlaying, setIsPlaying] = useState(true);
+      const [whatIfQuery, setWhatIfQuery] = useState('');
+      const [showCompare, setShowCompare] = useState(false);
+
+      // Gamification State
+      const [points, setPoints] = useState(0);
+      const [level, setLevel] = useState(1);
+      const [xpNotifications, setXpNotifications] = useState([]);
+
+      // Update params when problemData changes
+      useEffect(() => {
+        setParamsA({ ...problemData.parameters });
+        setParamsB({ ...problemData.parameters });
+      }, [problemData]);
+
+      const rewardPoints = (amount, reason) => {
+        setPoints(prev => {
+          const newPoints = prev + amount;
+          if (newPoints >= level * 500) {
+            setLevel(l => l + 1);
+            // Level up bonus notification
+            const levelNotif = { id: Date.now() + 1, text: `LEVEL UP! REACHED LEVEL ${level + 1}`, type: 'level' };
+            setXpNotifications(prevN => [...prevN, levelNotif]);
+            setTimeout(() => setXpNotifications(prevN => prevN.filter(n => n.id !== levelNotif.id)), 3000);
+          }
+          return newPoints;
+        });
+        const id = Date.now();
+        setXpNotifications(prev => [...prev, { id, text: `+${amount} XP: ${reason}`, type: 'xp' }]);
+        setTimeout(() => setXpNotifications(prev => prev.filter(n => n.id !== id)), 2000);
+      };
+
+      const handleParamChange = (set, key, value) => {
+        const setter = set === 'A' ? setParamsA : setParamsB;
+        setter(prev => ({ ...prev, [key]: parseFloat(value) }));
+        // Throttled reward? For now just reward once per slider session or every move
+        rewardPoints(5, 'Fine Tuning');
+      };
+
+      const [chatHistory, setChatHistory] = useState([
+        { role: 'ai', text: "I'm your Physics AI Assistant. Ask me to change parameters (e.g., 'double velocity') or explain the current simulation!" }
+      ]);
+      const chatEndRef = useRef(null);
+
+      useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, [chatHistory]);
+
+      const handleWhatIf = () => {
+        if (!whatIfQuery.trim()) return;
+
+        const query = whatIfQuery.toLowerCase();
+
+        // Add User Message
+        const userMsg = { role: 'user', text: whatIfQuery };
+        setChatHistory(prev => [...prev, userMsg]);
+        setWhatIfQuery('');
+
+        // 1. Parse Parameters (Intent Detection)
+        let changes = [];
+        let responseText = "";
+
+        // Helper to extract number
+        const val = parseFloat(query.match(/-?\d+\.?\d*/)?.[0]);
+
+        const updateParams = (key, friendlyName, unit) => {
+          // In What-If, apply to Scenario A if comparing, or just both?
+          // Let's apply to both/main if not specified, or show A/B choice
+          const targets = showCompare ? [setParamsA, setParamsB] : [setParamsA];
+
+          targets.forEach(setter => {
+            setter(prev => {
+              const current = prev[key];
+              let next = current;
+              let action = "changed";
+
+              if (query.includes('double')) { next = current * 2; action = "doubled"; }
+              else if (query.includes('half') || query.includes('halve')) { next = current / 2; action = "halved"; }
+              else if (query.includes('increase')) { next = current + (val || current * 0.1); action = "increased"; }
+              else if (query.includes('decrease')) { next = current - (val || current * 0.1); action = "decreased"; }
+              else if (val !== undefined && !isNaN(val)) { next = val; action = "set to"; }
+              else if (query.includes('moon')) { next = 1.6; action = "set to Moon"; }
+              else if (query.includes('jupiter')) { next = 24.8; action = "set to Jupiter"; }
+              else if (query.includes('earth')) { next = 9.8; action = "set to Earth"; }
+
+              changes.push(`${action} ${friendlyName} to ${next.toFixed(2)} ${unit}`);
+              return { ...prev, [key]: next };
+            });
+          });
+          rewardPoints(20, 'Scientific Inquiry');
+        };
+
+        if (query.includes('velocity') || query.includes('speed')) updateParams('velocity', 'velocity', 'm/s');
+        if (query.includes('gravity') || query.includes('accel')) updateParams('gravity', 'gravity', 'm/s²');
+        if (query.includes('angle')) updateParams('angle', 'angle', '°');
+        if (query.includes('length')) updateParams('length', 'length', 'm');
+        if (query.includes('field') || query.includes('strength')) updateParams('magneticField', 'magnetic field', 'T');
+        if (query.includes('focal')) updateParams('focalLength', 'focal length', 'cm');
+        if (query.includes('distance') || query.includes('object')) updateParams('objectDistance', 'object distance', 'cm');
+
+        // 2. Generate AI Response
+        setTimeout(() => {
+          if (changes.length > 0) {
+            responseText = `Sure! I've ${changes.join(' and ')}. Watch how this affects the trajectory!`;
+          } else {
+            // General Physics Knowledge / Fallback
+            if (query.includes('why')) {
+              responseText = "That's a great question! In physics, changing initial conditions often has non-linear effects. For example, doubling velocity quadruples kinetic energy!";
+            } else if (query.includes('hello') || query.includes('hi')) {
+              responseText = "Hello! Ready to do some physics?";
+            } else {
+              responseText = "I'm not sure which parameter to change. Try saying 'double gravity' or 'set angle to 45'.";
+            }
+          }
+
+          setChatHistory(prev => [...prev, { role: 'ai', text: responseText }]);
+        }, 500); // Small delay for "thinking" feel
+      };
+
+      const ParameterControls = ({ params, onParamChange }) => (
+        <div className="space-y-6">
+          {(problemData.type === 'projectile' || problemData.type === 'vertical' || problemData.type === 'magnetic') && (
+            <div>
+              <label className="flex justify-between text-sm text-blue-200 mb-2">
+                <span>Velocity</span>
+                <span className="font-mono text-cyan-400">{params.velocity.toFixed(1)} m/s</span>
+              </label>
+              <input
+                type="range"
+                min="5"
+                max="50"
+                step="0.5"
+                value={params.velocity}
+                onChange={(e) => onParamChange('velocity', e.target.value)}
+                className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer slider"
+              />
+            </div>
+          )}
+          {problemData.type === 'projectile' && (
+            <div>
+              <label className="flex justify-between text-sm text-blue-200 mb-2">
+                <span>Angle</span>
+                <span className="font-mono text-cyan-400">{params.angle.toFixed(1)}°</span>
+              </label>
+              <input
+                type="range"
+                min="0"
+                max="90"
+                step="1"
+                value={params.angle}
+                onChange={(e) => onParamChange('angle', e.target.value)}
+                className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer slider"
+              />
+            </div>
+          )}
+          {problemData.type === 'pendulum' && (
+            <div>
+              <label className="flex justify-between text-sm text-blue-200 mb-2">
+                <span>Length</span>
+                <span className="font-mono text-cyan-400">{params.length.toFixed(2)} m</span>
+              </label>
+              <input
+                type="range"
+                min="0.5"
+                max="5"
+                step="0.1"
+                value={params.length}
+                onChange={(e) => onParamChange('length', e.target.value)}
+                className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer slider"
+              />
+            </div>
+          )}
+          {(problemData.type !== 'optics' && problemData.type !== 'magnetic') && (
+            <div>
+              <label className="flex justify-between text-sm text-blue-200 mb-2">
+                <span>Gravity</span>
+                <span className="font-mono text-cyan-400">{params.gravity.toFixed(1)} m/s²</span>
+              </label>
+              <input
+                type="range"
+                min="1.6"
+                max="24.8"
+                step="0.1"
+                value={params.gravity}
+                onChange={(e) => onParamChange('gravity', e.target.value)}
+                className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer slider"
+              />
+            </div>
+          )}
+          {problemData.type === 'optics' && (
+            <>
+              <div>
+                <label className="flex justify-between text-sm text-blue-200 mb-2">
+                  <span>Focal Length</span>
+                  <span className="font-mono text-cyan-400">{params.focalLength.toFixed(1)} cm</span>
+                </label>
+                <input
+                  type="range"
+                  min="5"
+                  max="50"
+                  step="1"
+                  value={params.focalLength}
+                  onChange={(e) => onParamChange('focalLength', e.target.value)}
+                  className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer slider"
+                />
+              </div>
+              <div>
+                <label className="flex justify-between text-sm text-blue-200 mb-2">
+                  <span>Object Dist</span>
+                  <span className="font-mono text-cyan-400">{params.objectDistance.toFixed(1)} cm</span>
+                </label>
+                <input
+                  type="range"
+                  min="10"
+                  max="100"
+                  step="1"
+                  value={params.objectDistance}
+                  onChange={(e) => onParamChange('objectDistance', e.target.value)}
+                  className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer slider"
+                />
+              </div>
+            </>
+          )}
+          {problemData.type === 'magnetic' && (
+            <div>
+              <label className="flex justify-between text-sm text-blue-200 mb-2">
+                <span>Magnetic Field</span>
+                <span className="font-mono text-cyan-400">{params.magneticField.toFixed(1)} T</span>
+              </label>
+              <input
+                type="range"
+                min="1"
+                max="20"
+                step="0.5"
+                value={params.magneticField}
+                onChange={(e) => onParamChange('magneticField', e.target.value)}
+                className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer slider"
+              />
+            </div>
+          )}
+        </div>
+      );
+
+      const ScenarioPane = ({ params, setLabel, onParamChange, isA }) => (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <span className={`px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-widest border ${isA ? 'bg-cyan-500/10 text-cyan-400 border-cyan-400/30' : 'bg-purple-500/10 text-purple-400 border-purple-400/30'}`}>
+              Scenario {setLabel}
+            </span>
+          </div>
+
+          <div className="p-6 rounded-2xl bg-white/5 backdrop-blur-lg border border-white/20">
+            <h4 className="text-sm font-bold text-white mb-4 uppercase tracking-wider opacity-60">Live Simulation</h4>
+            <SimulationCanvas
+              type={problemData.type}
+              subType={problemData.subType}
+              parameters={params}
+              isPlaying={isPlaying}
+            />
+          </div>
+
+          <div className="p-6 rounded-2xl bg-white/5 backdrop-blur-lg border border-white/20">
+            <h4 className="text-sm font-bold text-white mb-4 uppercase tracking-wider opacity-60">Trajectory Analysis</h4>
+            <GraphView
+              type={problemData.type}
+              subType={problemData.subType}
+              parameters={params}
+              time={0}
+            />
+          </div>
+
+          <div className="p-6 rounded-2xl bg-white/10 backdrop-blur-xl border border-white/20 shadow-xl">
+            <h4 className="text-sm font-bold text-white mb-4 uppercase tracking-wider opacity-60">Adjust Parameters</h4>
+            <ParameterControls params={params} onParamChange={onParamChange} />
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="min-h-screen relative overflow-hidden pb-12">
+          <div className="fixed inset-0 bg-gradient-to-br from-slate-950 via-blue-950 to-violet-950" />
+          <AnimatedBackground />
+
+          <div className="relative z-10">
+            {/* Header */}
+            <div className="container mx-auto px-6 py-6">
+              <div className="flex justify-between items-center flex-wrap gap-4">
+                <div className="flex items-center gap-4">
+                  <h1 className="text-2xl font-bold text-white" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                    PhysAI Lab
+                  </h1>
+                  {/* Points Hub */}
+                  <div className="flex items-center gap-3 bg-white/5 backdrop-blur-md rounded-full px-4 py-1.5 border border-white/10">
+                    <div className="flex flex-col items-center">
+                      <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-widest">Level</span>
+                      <span className="text-sm font-bold text-white leading-none">{level}</span>
+                    </div>
+                    <div className="h-6 w-[1px] bg-white/10" />
+                    <div className="flex flex-col">
+                      <span className="text-[10px] text-blue-300 font-bold uppercase tracking-widest leading-none mb-1">XP Points</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-cyan-300 leading-none">{points}</span>
+                        <div className="w-24 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${(points % 500) / 5}%` }}
+                            className="h-full bg-gradient-to-r from-cyan-400 to-blue-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-4 flex-wrap">
+                  <button
+                    onClick={() => {
+                      setShowCompare(!showCompare);
+                      rewardPoints(50, 'Comparative Analysis');
+                    }}
+                    className={`px-6 py-2 rounded-lg text-white transition-all duration-300 font-bold ${showCompare ? 'bg-cyan-500 shadow-lg shadow-cyan-500/50' : 'bg-white/10 backdrop-blur-md hover:bg-white/20'}`}
+                  >
+                    {showCompare ? 'Single View' : 'Compare Mode'}
+                  </button>
+                  <button
+                    onClick={() => onNavigate('problem-input')}
+                    className="px-6 py-2 bg-white/10 backdrop-blur-md rounded-lg text-white hover:bg-white/20 transition-all duration-300"
+                  >
+                    New Problem
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* XP Notifications */}
+            <div className="fixed top-24 right-6 z-50 pointer-events-none space-y-2">
+              <AnimatePresence>
+                {xpNotifications.map(n => (
+                  <motion.div
+                    key={n.id}
+                    initial={{ opacity: 0, x: 20, scale: 0.8 }}
+                    animate={{ opacity: 1, x: 0, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.5 }}
+                    className={`px-4 py-2 rounded-xl border backdrop-blur-xl shadow-lg ${n.type === 'level' ? 'bg-yellow-500/20 border-yellow-400 text-yellow-200' : 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200'}`}
+                  >
+                    <span className="font-bold font-mono">{n.text}</span>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </div>
+
+            <div className="container mx-auto px-6 py-6">
+              <div className={`grid ${showCompare ? 'grid-cols-1 lg:grid-cols-12' : 'lg:grid-cols-4'} gap-6`}>
+
+                {/* Left Panel - Explanation */}
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className={`space-y-6 ${showCompare ? 'lg:col-span-2' : 'lg:col-span-1'}`}
+                >
+                  <div className="p-6 rounded-2xl bg-white/10 backdrop-blur-lg border border-white/20">
+                    <h3 className="text-xl font-bold text-white mb-3" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Problem</h3>
+                    <p className="text-blue-200/80 leading-relaxed text-sm">{problemData.problem}</p>
+                  </div>
+
+                  <div className="p-6 rounded-2xl bg-white/10 backdrop-blur-lg border border-white/20 h-[calc(100vh-400px)] overflow-y-auto custom-scrollbar">
+                    <h3 className="text-xl font-bold text-white mb-4" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                      {problemData.explanation.title}
+                    </h3>
+                    <div className="space-y-3">
+                      {problemData.explanation.steps.map((step, i) => (
+                        <div key={i} className="bg-black/20 p-3 rounded-lg border border-white/5">
+                          <div className="text-xs text-cyan-400 font-bold mb-1 uppercase">{step.label}</div>
+                          <div className="text-sm text-blue-100 font-mono whitespace-pre-wrap">{step.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </motion.div>
+
+                {/* Main Action Area */}
+                <div className={`${showCompare ? 'lg:col-span-10' : 'lg:col-span-3'} space-y-6`}>
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-2xl font-bold text-white" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                      {showCompare ? 'Comparison Lab' : 'Live Simulation'}
+                    </h3>
+                    <button
+                      onClick={() => {
+                        setIsPlaying(!isPlaying);
+                        rewardPoints(15, 'Time Control');
+                      }}
+                      className="px-8 py-3 bg-white/10 backdrop-blur-md rounded-xl text-white hover:bg-white/20 transition-all duration-300 font-bold border border-white/10"
+                    >
+                      {isPlaying ? '⏸ Pause' : '▶ Play'}
+                    </button>
+                  </div>
+
+                  <div className={`grid ${showCompare ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'} gap-6`}>
+                    {showCompare ? (
+                      <>
+                        <ScenarioPane params={paramsA} setLabel="A" isA={true} onParamChange={(k, v) => handleParamChange('A', k, v)} />
+                        <ScenarioPane params={paramsB} setLabel="B" isA={false} onParamChange={(k, v) => handleParamChange('B', k, v)} />
+                      </>
+                    ) : (
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div className="lg:col-span-2 space-y-6">
+                          <ScenarioPane params={paramsA} setLabel="A" isA={true} onParamChange={(k, v) => handleParamChange('A', k, v)} />
+                        </div>
+                        <div className="lg:col-span-1">
+                          <div className="p-6 rounded-2xl bg-white/10 backdrop-blur-lg border border-white/20 flex flex-col h-full min-h-[500px]">
+                            <h3 className="text-xl font-bold text-white mb-4" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Follow Up</h3>
+                            <div className="flex-1 overflow-y-auto custom-scrollbar mb-4 space-y-3 pr-2">
+                              {chatHistory.map((msg, index) => (
+                                <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                  <div className={`rounded-lg p-3 text-sm max-w-[90%] ${msg.role === 'user' ? 'bg-cyan-500/20 text-cyan-100 border border-cyan-500/30' : 'bg-white/10 text-blue-100 border border-white/10'}`}>
+                                    {msg.text}
+                                  </div>
+                                </div>
+                              ))}
+                              <div ref={chatEndRef} />
+                            </div>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={whatIfQuery}
+                                onChange={(e) => setWhatIfQuery(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleWhatIf()}
+                                placeholder="Change physics..."
+                                className="w-full pl-4 pr-12 py-3 bg-black/30 border border-white/10 rounded-xl text-white focus:outline-none focus:border-cyan-400"
+                              />
+                              <button onClick={handleWhatIf} className="absolute right-2 top-2 p-1.5 bg-cyan-500 rounded-lg text-black hover:bg-cyan-400 transition-colors">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 12h14" /></svg>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {showCompare && (
+                    <div className="p-6 rounded-2xl bg-white/10 backdrop-blur-lg border border-white/20">
+                      <h3 className="text-xl font-bold text-white mb-4" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Scenario Comparison Chat</h3>
+                      <div className="grid lg:grid-cols-4 gap-6">
+                        <div className="lg:col-span-3 h-32 overflow-y-auto custom-scrollbar pr-2 space-y-3">
+                          {chatHistory.slice(-3).map((msg, index) => (
+                            <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                              <div className={`rounded-lg p-2 text-xs ${msg.role === 'user' ? 'bg-cyan-500/20 text-cyan-100' : 'bg-white/10 text-blue-100'}`}>{msg.text}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="lg:col-span-1 flex flex-col justify-end">
+                          <input
+                            type="text"
+                            value={whatIfQuery}
+                            onChange={(e) => setWhatIfQuery(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleWhatIf()}
+                            placeholder="Ask about both..."
+                            className="w-full p-2 bg-black/30 border border-white/10 rounded-lg text-white text-sm"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <style>{`
+            .slider::-webkit-slider-thumb {
+              appearance: none;
+              width: 20px;
+              height: 20px;
+              border-radius: 50%;
+              background: linear-gradient(135deg, #06b6d4, #3b82f6);
+              cursor: pointer;
+              box-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
+            }
+            .slider::-moz-range-thumb {
+              width: 20px;
+              height: 20px;
+              border-radius: 50%;
+              background: linear-gradient(135deg, #06b6d4, #3b82f6);
+              cursor: pointer;
+              border: none;
+              box-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
+            }
+            `}</style>
+          </div>
+        </div>
+      );
+    };
+
+    // ==================== MAIN APP ====================
+
+    function PhysAILab() {
+      const [currentPage, setCurrentPage] = useState('landing');
+      const [problemData, setProblemData] = useState(null);
+
+      const handleSubmitProblem = (problemText) => {
+        const parsed = parsePhysicsProblem(problemText);
+        setProblemData(parsed);
+        // Reset params when new problem loaded
+        if (parsed && parsed.parameters) {
+          // We can't easily reset the params state inside SimulationPage from here directly
+          // But since SimulationPage is conditionally rendered, it unmounts and remounts?
+          // Actually AnimatePresence might keep it alive.
+          // We're passing problemData as prop. SimulationPage should useEffect to update params when problemData changes.
+        }
+      };
+
+      return (
+        <div className="min-h-screen bg-slate-950 text-white">
+          <AnimatePresence mode="wait">
+            {currentPage === 'landing' && (
+              <motion.div
+                key="landing"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.5 }}
+              >
+                <LandingPage onNavigate={setCurrentPage} />
+              </motion.div>
+            )}
+
+            {currentPage === 'login' && (
+              <motion.div
+                key="login"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.5 }}
+              >
+                <LoginPage onNavigate={setCurrentPage} />
+              </motion.div>
+            )}
+
+            {currentPage === 'dashboard' && (
+              <motion.div
+                key="dashboard"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.5 }}
+              >
+                <Dashboard onNavigate={setCurrentPage} />
+              </motion.div>
+            )}
+
+            {currentPage === 'problem-input' && (
+              <motion.div
+                key="problem-input"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.5 }}
+              >
+                <ProblemInputPage
+                  onNavigate={setCurrentPage}
+                  onSubmitProblem={handleSubmitProblem}
+                />
+              </motion.div>
+            )}
+
+            {currentPage === 'simulation' && problemData && (
+              <motion.div
+                key="simulation"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.5 }}
+              >
+                <SimulationPage
+                  onNavigate={setCurrentPage}
+                  problemData={problemData}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      );
+    }
+
+    // Render the app
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<PhysAILab />);
+  </script>
+</body>
+
+</html>
